@@ -61,8 +61,11 @@ public:
 
 	void applyAlphaTransparent()
 	{
-		AddExStyle(m_hwnd, WS_EX_TRANSPARENT);
-		::SetLayeredWindowAttributes(m_hwnd, 0, m_alphaTransparent, LWA_ALPHA);
+		if (m_alphaTransparent != 255)
+		{
+			AddExStyle(m_hwnd, WS_EX_TRANSPARENT);
+			::SetLayeredWindowAttributes(m_hwnd, 0, m_alphaTransparent, LWA_ALPHA);
+		}
 	}
 
 	operator HWND() const { return m_hwnd; }
@@ -73,6 +76,14 @@ public:
 		return !!(exStyle & WS_EX_TRANSPARENT);
 	}
 
+	BYTE getAlphaActive() { return m_alphaActive; }
+	BYTE getAlphaInactive() { return m_alphaInactive; }
+	BYTE getAlphaTransparent() { return m_alphaTransparent; }
+
+	void setAlphaActive(BYTE alpha) { m_alphaActive = alpha; }
+	void setAlphaInactive(BYTE alpha) { m_alphaInactive = alpha; }
+	void setAlphaTransparent(BYTE alpha) { m_alphaTransparent = alpha; }
+
 };
 
 class CToumeiApp
@@ -81,14 +92,10 @@ public:
 
 	HINSTANCE m_instance;
 	HWND m_filterWindow;
-	HHOOK m_keyboardHook;
 	HHOOK m_cwpHook;
 
 	AlphaManager m_exeditTimelineWindow;
 	AlphaManager m_exeditObjectDialog;
-
-	BYTE m_vkCode;
-	BYTE m_vkModifier;
 
 public:
 
@@ -96,13 +103,12 @@ public:
 	~CToumeiApp();
 
 	BOOL DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved);
+	void load(int* track_def);
 	BOOL func_init(FILTER *fp);
 	BOOL func_exit(FILTER *fp);
 	BOOL func_proc(FILTER *fp, FILTER_PROC_INFO *fpip);
+	BOOL func_update(FILTER *fp, int status);
 	BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, void *editp, FILTER *fp);
-
-	LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam);
-	static LRESULT CALLBACK _keyboardHookProc(int code, WPARAM wParam, LPARAM lParam);
 
 	LRESULT CALLBACK cwpHookProc(int code, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK _cwpHookProc(int code, WPARAM wParam, LPARAM lParam);

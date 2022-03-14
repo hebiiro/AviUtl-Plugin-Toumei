@@ -42,11 +42,7 @@ CToumeiApp::CToumeiApp()
 {
 	m_instance = 0;
 	m_filterWindow = 0;
-	m_keyboardHook = 0;
 	m_cwpHook = 0;
-
-	m_vkCode = 'Q';
-	m_vkModifier = VK_MENU;
 }
 
 CToumeiApp::~CToumeiApp()
@@ -78,6 +74,25 @@ BOOL CToumeiApp::DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 	return TRUE;
 }
 
+void CToumeiApp::load(int* track_def)
+{
+	// ini ファイルから設定を読み込む。
+	TCHAR path[MAX_PATH] = {};
+	::GetModuleFileName(m_instance, path, MAX_PATH);
+	::PathRenameExtension(path, _T(".ini"));
+	MY_TRACE_TSTR(path);
+
+	m_exeditTimelineWindow.load(path, _T("Settings"), _T("exeditTimelineWindow"));
+	m_exeditObjectDialog.load(path, _T("Settings"), _T("exeditObjectDialog"));
+
+	track_def[0] = m_exeditTimelineWindow.getAlphaActive();
+	track_def[1] = m_exeditTimelineWindow.getAlphaInactive();
+	track_def[2] = m_exeditTimelineWindow.getAlphaTransparent();
+	track_def[3] = m_exeditObjectDialog.getAlphaActive();
+	track_def[4] = m_exeditObjectDialog.getAlphaInactive();
+	track_def[5] = m_exeditObjectDialog.getAlphaTransparent();
+}
+
 BOOL CToumeiApp::func_init(FILTER *fp)
 {
 	MY_TRACE(_T("CToumeiApp::func_init()\n"));
@@ -85,22 +100,9 @@ BOOL CToumeiApp::func_init(FILTER *fp)
 	m_filterWindow = fp->hwnd;
 	MY_TRACE_HEX(m_filterWindow);
 
-	{
-		// ini ファイルから設定を読み込む。
-		TCHAR path[MAX_PATH];
-		::GetModuleFileName(m_instance, path, MAX_PATH);
-		::PathRenameExtension(path, _T(".ini"));
-		MY_TRACE_TSTR(path);
-
-		m_exeditTimelineWindow.load(path, _T("Settings"), _T("exeditTimelineWindow"));
-		m_exeditObjectDialog.load(path, _T("Settings"), _T("exeditObjectDialog"));
-
-		m_vkCode = ::GetPrivateProfileInt(_T("Settings"), _T("vkCode"), m_vkCode, path);
-		m_vkModifier = ::GetPrivateProfileInt(_T("Settings"), _T("vkModifier"), m_vkModifier, path);
-	}
-
-	m_keyboardHook = SetWindowsHookEx(WH_KEYBOARD, _keyboardHookProc, 0, ::GetCurrentThreadId());
 	m_cwpHook = SetWindowsHookEx(WH_CALLWNDPROC, _cwpHookProc, 0, ::GetCurrentThreadId());
+
+	fp->exfunc->add_menu_item(fp, (LPSTR)"マウス操作の背景通知ON/OFF", fp->hwnd, 1, 0, 0);
 
 	return TRUE;
 }
@@ -109,7 +111,6 @@ BOOL CToumeiApp::func_exit(FILTER *fp)
 {
 	MY_TRACE(_T("CToumeiApp::func_exit()\n"));
 
-	::UnhookWindowsHookEx(m_keyboardHook), m_keyboardHook = 0;
 	::UnhookWindowsHookEx(m_cwpHook), m_cwpHook = 0;
 
 	return TRUE;
@@ -120,6 +121,29 @@ BOOL CToumeiApp::func_proc(FILTER *fp, FILTER_PROC_INFO *fpip)
 	MY_TRACE(_T("CToumeiApp::func_proc()\n"));
 
 	return FALSE;
+}
+
+BOOL CToumeiApp::func_update(FILTER *fp, int status)
+{
+	m_exeditTimelineWindow.setAlphaActive(fp->track[0]);
+	m_exeditTimelineWindow.setAlphaInactive(fp->track[1]);
+	m_exeditTimelineWindow.setAlphaTransparent(fp->track[2]);
+	m_exeditObjectDialog.setAlphaActive(fp->track[3]);
+	m_exeditObjectDialog.setAlphaInactive(fp->track[4]);
+	m_exeditObjectDialog.setAlphaTransparent(fp->track[5]);
+
+	if (fp->check[0])
+	{
+		m_exeditTimelineWindow.applyAlphaTransparent();
+		m_exeditObjectDialog.applyAlphaTransparent();
+	}
+	else
+	{
+		m_exeditTimelineWindow.applyAlpha();
+		m_exeditObjectDialog.applyAlpha();
+	}
+
+	return TRUE;
 }
 
 BOOL CToumeiApp::func_WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, void *editp, FILTER *fp)
@@ -140,6 +164,7 @@ BOOL CToumeiApp::func_WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				m_exeditObjectDialog.init(GetObjectDialog());
 				MY_TRACE_HEX(m_exeditObjectDialog);
 			}
+
 			break;
 		}
 	case WM_KEYDOWN:
@@ -148,45 +173,20 @@ BOOL CToumeiApp::func_WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			::SendMessage(::GetWindow(hwnd, GW_OWNER), message, wParam, lParam);
 			break;
 		}
-	}
-
-	return FALSE;
-}
-
-LRESULT CALLBACK CToumeiApp::keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
-{
-	if (code < 0)
-		return ::CallNextHookEx(m_keyboardHook, code, wParam, lParam);
-
-	if (wParam == m_vkCode && LOWORD(lParam) == 1 && lParam > 0)
-	{
-		if (!m_vkModifier || ::GetKeyState(m_vkModifier) < 0)
+	case WM_FILTER_COMMAND:
 		{
-			if (m_exeditTimelineWindow.isTransparent())
+			if (wParam == 1)
 			{
-				MY_TRACE(_T("マウスの透過を解除します\n"));
-
-				m_exeditTimelineWindow.applyAlpha();
-				m_exeditObjectDialog.applyAlpha();
-			}
-			else
-			{
-				MY_TRACE(_T("マウスを透過させます\n"));
-
-				m_exeditTimelineWindow.applyAlphaTransparent();
-				m_exeditObjectDialog.applyAlphaTransparent();
+				fp->check[0] = !fp->check[0];
+				func_update(fp, FILTER_UPDATE_STATUS_CHECK+0);
+				fp->exfunc->filter_window_update(fp);
 			}
 
-		    return TRUE;
+			break;
 		}
 	}
 
-	return ::CallNextHookEx(m_keyboardHook, code, wParam, lParam);
-}
-
-LRESULT CALLBACK CToumeiApp::_keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
-{
-	return theApp.keyboardHookProc(code, wParam, lParam);
+	return FALSE;
 }
 
 LRESULT CALLBACK CToumeiApp::cwpHookProc(int code, WPARAM wParam, LPARAM lParam)
